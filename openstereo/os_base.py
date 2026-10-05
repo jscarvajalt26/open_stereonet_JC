@@ -9,6 +9,7 @@ import zipfile
 import os
 from datetime import datetime
 from itertools import tee
+from collections import defaultdict
 from os import path
 from tempfile import mkdtemp
 import traceback
@@ -1988,6 +1989,13 @@ class Main(QtWidgets.QMainWindow, Ui_MainWindow):
             item.dialog = QtWidgets.QDialog(self)
             item.dialog_ui = item.properties_ui()
             item.dialog_ui.setupUi(item.dialog)
+            # Dynamically populate colormap combo boxes with matplotlib cmaps
+            all_cmaps = sorted(matplotlib.colormaps.keys())
+            for cmap_widget_name in ("prop_contour_cmap", "prop_contour_line_cmap"):
+                if hasattr(item.dialog_ui, cmap_widget_name):
+                    cmap_widget = getattr(item.dialog_ui, cmap_widget_name)
+                    cmap_widget.clear()
+                    cmap_widget.addItems(all_cmaps)
             item.dialog.setWindowTitle(item.text(0))
             item.dialog.accepted.connect(
                 lambda: parse_properties_dialog(item.dialog_ui, item)
@@ -2035,6 +2043,47 @@ class Main(QtWidgets.QMainWindow, Ui_MainWindow):
             )
             populate_item_table(item)
         item.item_table_dialog.show()
+
+    def split_by_column(self):
+        """Split a dataset into sub-items by unique values of a chosen column."""
+        item = self.get_selected()
+        if item is None or not hasattr(item, 'auttitude_data'):
+            return
+        input_data = item.auttitude_data.input_data
+        if not input_data:
+            return
+        n_cols = len(input_data[0])
+        headers = item.kwargs.get("data_headers") or [
+            "Column {}".format(i) for i in range(n_cols)
+        ]
+        col_name, ok = QtWidgets.QInputDialog.getItem(
+            self,
+            _translate("main", "Split by Column"),
+            _translate("main", "Select the column to group by:"),
+            list(headers),
+            0,
+            False,
+        )
+        if not ok:
+            return
+        col_idx = list(headers).index(col_name)
+        groups = defaultdict(list)
+        for row in input_data:
+            groups[str(row[col_idx])].append(row)
+        parent = item.parent()
+        if parent is None:
+            parent = self.treeWidget
+        for group_val in sorted(groups.keys()):
+            group_rows = groups[group_val]
+            new_name = "{} [{}={}]".format(item.text(0), col_name, group_val)
+            self.import_data(
+                item.data_type,
+                new_name,
+                item_parent=parent,
+                data_path=item.data_path,
+                data=group_rows,
+                **item.kwargs,
+            )
 
     def group_selected(self):
         items = self.get_selected(multiple_selection=True)
@@ -2177,6 +2226,9 @@ class Main(QtWidgets.QMainWindow, Ui_MainWindow):
                 item_table_action = menu.addAction(
                     _translate("main", "View item table")
                 )
+                split_by_col_action = menu.addAction(
+                    _translate("main", "Split by column...")
+                )
                 menu.addSeparator()
                 copy_props_action = menu.addAction(
                     _translate("main", "Copy layer properties")
@@ -2232,6 +2284,7 @@ class Main(QtWidgets.QMainWindow, Ui_MainWindow):
             if isinstance(item, DataItem):
                 properties_action.triggered.connect(self.properties_dataitem)
                 item_table_action.triggered.connect(self.item_table)
+                split_by_col_action.triggered.connect(self.split_by_column)
 
                 copy_props_action.triggered.connect(self.copy_props_dataitem)
                 paste_props_action.triggered.connect(self.paste_props_dataitem)

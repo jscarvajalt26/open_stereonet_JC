@@ -1,6 +1,6 @@
 import re
 
-from PyQt5 import QtWidgets, QtGui
+from PyQt5 import QtWidgets, QtGui, QtCore
 
 props_re = re.compile("([^_]+)_(color_)?(.+)_([^_]+)")
 
@@ -136,6 +136,7 @@ def apply_action_factory(main_window, item):
 
 def update_data_button_factory(item, post_hook=None):
     def update_data():
+        import numpy as np
         data_table = item.item_table_ui.data_table
         data = []
         m = data_table.rowCount()
@@ -143,7 +144,7 @@ def update_data_button_factory(item, post_hook=None):
         for i in range(m):
             row = []
             row_empty = True
-            for j in range(n):
+            for j in range(1, n):  # skip column 0 (Visible checkbox)
                 cell = data_table.item(i, j)
                 if cell is not None:
                     row_empty = False
@@ -157,6 +158,16 @@ def update_data_button_factory(item, post_hook=None):
                 data.append(row)
         item.auttitude_data.input_data = data
         item.reload_data_from_internal()
+        # Sync enabled_mask from the Visible checkbox column
+        new_mask = []
+        for i in range(len(item.auttitude_data.input_data)):
+            cb = data_table.item(i, 0)
+            if cb is not None:
+                new_mask.append(cb.checkState() == QtCore.Qt.Checked)
+            else:
+                new_mask.append(True)
+        item.enabled_mask = np.array(new_mask, dtype=bool)
+        item.au_object = item.auttitude_class(item.auttitude_data.data)
         selected = data_table.selectedIndexes()
         si = sj = 0
         if len(selected) == 1:
@@ -193,11 +204,28 @@ def populate_item_table(item):  # TODO: keep selection
     table = item.item_table_ui.data_table
     clear_table(table)
     m = len(data)
-    n = len(data[0])
+    n = len(data[0]) if m > 0 else 0
     table.setRowCount(m + 10)
-    table.setColumnCount(n)
-    if item.kwargs["data_headers"] is not None:
-        table.setHorizontalHeaderLabels(item.kwargs["data_headers"])
+    table.setColumnCount(n + 1)  # +1 for the Visible checkbox column
+    # Build headers: prepend "Visible"
+    headers = ["Visible"]
+    if item.kwargs.get("data_headers") is not None:
+        headers.extend(item.kwargs["data_headers"])
+    else:
+        headers.extend(["Col {}".format(j) for j in range(n)])
+    table.setHorizontalHeaderLabels(headers)
+    mask = getattr(item, "enabled_mask", None)
     for i in range(m):
+        # Column 0: visibility checkbox
+        cb_item = QtWidgets.QTableWidgetItem()
+        cb_item.setFlags(
+            QtCore.Qt.ItemIsUserCheckable | QtCore.Qt.ItemIsEnabled
+        )
+        visible = (mask is None) or bool(mask[i])
+        cb_item.setCheckState(
+            QtCore.Qt.Checked if visible else QtCore.Qt.Unchecked
+        )
+        table.setItem(i, 0, cb_item)
+        # Columns 1..n: data cells
         for j in range(n):
-            table.setItem(i, j, QtWidgets.QTableWidgetItem(str(data[i][j])))
+            table.setItem(i, j + 1, QtWidgets.QTableWidgetItem(str(data[i][j])))

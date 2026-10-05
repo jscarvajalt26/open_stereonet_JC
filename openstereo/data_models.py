@@ -237,6 +237,7 @@ class CircularData(DataItem):
             data if isinstance(data, DirectionalData) else load(data, **kwargs)
         )  # TODO: change this to new autti
         self.au_object = self.auttitude_class(self.auttitude_data.data)
+        self.enabled_mask = np.ones(len(self.auttitude_data.data), dtype=bool)
         super(CircularData, self).__init__(name, parent, item_id)
 
     def build_configuration(self):
@@ -539,15 +540,41 @@ class AttitudeData(CircularData):  # TODO: change name to VectorData
 
         self.data_settings = {"smallcircle": ""}
 
+    @property
+    def masked_data(self):
+        """Returns orientation data filtered by the enabled_mask."""
+        if hasattr(self, 'enabled_mask') and not self.enabled_mask.all():
+            return self.auttitude_data.data[self.enabled_mask]
+        return self.auttitude_data.data
+
+    @property
+    def masked_au_object(self):
+        """Returns auttitude object built only from enabled (visible) rows."""
+        data = self.masked_data
+        if data is self.auttitude_data.data:
+            return self.au_object
+        return self.auttitude_class(data)
+
+    @property
+    def masked_n(self):
+        """Count of currently enabled rows."""
+        if hasattr(self, 'enabled_mask'):
+            return int(self.enabled_mask.sum())
+        return self.auttitude_data.n
+
     def reload_data(self):
         data = get_data(self.data_path, self.auttitude_data.kwargs)
         self.auttitude_data = load(data, **self.auttitude_data.kwargs)
+        self.au_object = self.auttitude_class(self.auttitude_data.data)
+        self.enabled_mask = np.ones(len(self.auttitude_data.data), dtype=bool)
 
     def reload_data_from_internal(self):
         # data = get_data(self.data_path, self.auttitude_data.kwargs)
         self.auttitude_data = load(
             self.auttitude_data.input_data, **self.auttitude_data.kwargs
         )
+        self.au_object = self.auttitude_class(self.auttitude_data.data)
+        self.enabled_mask = np.ones(len(self.auttitude_data.data), dtype=bool)
 
     def plot_Points(self):
         if self.legend_settings["point"]:
@@ -560,12 +587,12 @@ class AttitudeData(CircularData):  # TODO: change name to VectorData
         else:
             legend_text = "{} ({} {})".format(
                 self.text(0),
-                self.auttitude_data.n,
+                self.masked_n,
                 self.plot_item_name.get("Points", "Points").lower(),
             )
         return (
             PointPlotData(
-                self.auttitude_data.data,
+                self.masked_data,
                 self.point_settings,
                 self.checklegend_settings["point"],
                 legend_text,
@@ -725,7 +752,7 @@ class AttitudeData(CircularData):  # TODO: change name to VectorData
                         k = None
             else:
                 k = self.contour_calc_settings["K"]
-            count = self.au_object.count_fisher(k, grid=grid)
+            count = self.masked_au_object.count_fisher(k, grid=grid)
         else:
             if self.contour_check_settings["autocount"]:
                 if self.contour_check_settings["robinjowett"]:
@@ -754,7 +781,7 @@ class AttitudeData(CircularData):  # TODO: change name to VectorData
                         0.141536 * self.contour_calc_settings["scperc"]
                     )
                 )
-            count = self.au_object.count_kamb(theta, grid=grid)
+            count = self.masked_au_object.count_kamb(theta, grid=grid)
         return (
             ContourPlotData(
                 nodes,
@@ -884,7 +911,7 @@ class PlaneData(AttitudeData):
         }
 
     def plot_GC(self):
-        circles = [great_circle(point) for point in self.auttitude_data.data]
+        circles = [great_circle(point) for point in self.masked_data]
         if self.legend_settings["GC"]:
             try:
                 legend_text = self.legend_settings["GC"].format(
@@ -982,9 +1009,12 @@ class SmallCircleData(DataItem):
             legend_text = "{} ({})".format(
                 self.text(0), self.plot_item_name.get("scaxis", "scaxis")
             )
+        sc_axes_data = self.auttitude_data.data
+        if hasattr(self, 'enabled_mask') and not self.enabled_mask.all():
+            sc_axes_data = sc_axes_data[self.enabled_mask]
         return (
             PointPlotData(
-                self.auttitude_data.data,
+                sc_axes_data,
                 self.scaxis_settings,
                 self.checklegend_settings["scaxis"],
                 legend_text,
@@ -1004,10 +1034,15 @@ class SmallCircleData(DataItem):
             legend_text = "{} ({})".format(
                 self.text(0), self.plot_item_name.get("SC", "Small Circle")
             )
+        data = self.auttitude_data.data
+        alpha = self.alpha
+        if hasattr(self, 'enabled_mask') and not self.enabled_mask.all():
+            data = data[self.enabled_mask]
+            alpha = [a for a, m in zip(self.alpha, self.enabled_mask) if m]
         circles = list(
             chain.from_iterable(
-                small_circle(axis, radians(alpha))
-                for axis, alpha in zip(self.auttitude_data.data, self.alpha)
+                small_circle(axis, radians(a))
+                for axis, a in zip(data, alpha)
             )
         )
         plot_items.append(
