@@ -19,7 +19,10 @@ from matplotlib.collections import (
 # from matplotlib.mlab import griddata
 import matplotlib.patheffects as PathEffects
 from matplotlib.font_manager import FontProperties
-from mpl_toolkits.axes_grid.axislines import Subplot
+try:
+    from mpl_toolkits.axes_grid1.axislines import Subplot
+except ImportError:
+    from mpl_toolkits.axes_grid.axislines import Subplot
 
 from matplotlib.lines import Line2D
 
